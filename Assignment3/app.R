@@ -18,29 +18,33 @@ scrape_covid_data <- function() {
   # Die ersten 9 und die letzten 8 Zeilen beinhalten Angaben zu den Kontinenten,
   # die für die Kartenvisualisierung nicht benötigt werden.
   # Lösche die ersten 9 Zeilen
-  table <- table[-c(1:9), ]
+  table <- table[-c(1:8), ]
   
   # Lösche die letzten 8 Zeilen
   table <- table[-c((nrow(table) - 7):nrow(table)), ]
   
   # Speichere nur die benötigten Spalten
-  table <- table[, c(2, 3, 5)]
+  table <- table[, c(2, 3, 5, 13, 15)]
   
-  # Konvertiere die ausgewählte Spalte in numerische Werte
-  table[, 2] <- lapply(table[, 2], function(x) {
-    # Remove commas from values
-    x <- gsub(",", "", x)
-    ifelse(is.na(as.numeric(x)), x, as.numeric(x))
-  })
+  # Funktion zum Entfernen von Tausendertrennzeichen aus Zeichenketten
+  removeCommas <- function(x) {
+    gsub(",", "", x)
+  }
   
-  # Convert TotalDeaths column to numeric
-  table$TotalDeaths <- as.numeric(gsub(",", "", table$TotalDeaths, fixed = TRUE))
+  # Spaltenindizes für die Umwandlung in numerische Werte
+  colIndices <- c(2, 3, 4, 5)
   
-  # Replace invalid numeric values with NA
-  table$TotalDeaths[is.na(table$TotalDeaths) | is.infinite(table$TotalDeaths)] <- NA
+  # Entferne Kommas und wandele in numerische Werte um
+  for (colIndex in colIndices) {
+    table[[colIndex]] <- as.numeric(removeCommas(table[[colIndex]]))
+  }
   
-  # Change the name of the first column
+  # Change the name of the column
   colnames(table)[1] <- "country"
+  colnames(table)[2] <- "TotalCases"
+  colnames(table)[3] <- "TotalDeaths"
+  colnames(table)[4] <- "TotalTests"
+  colnames(table)[5] <- "Population"
   
   # Rückgabe der Daten
   table
@@ -55,28 +59,61 @@ getgeodata <- function() {
   geodata
 }
 
+js_code <- '
+function copyToClipboard(text) {
+    var textarea = document.createElement("textarea");
+    textarea.value = text;
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+    alert("Text copied to clipboard: " + text);
+}'
+
+css <- "
+custom-cursor:hover {
+    cursor: pointer;
+}
+"
+
 # UI
 ui <- dashboardPage(
   dashboardHeader(title = "COVID-19 Dashboard"),
   dashboardSidebar(
     sidebarMenu(
-      menuItem("Dashboard", tabName = "dashboard", icon = icon("dashboard"))
+      menuItem("Dashboard", tabName = "Dashboard", icon = icon("dashboard")),
+      menuItem("Graphs", tabName = "Graphs"),
+      selectInput("value", "Werte anzeigen:", choices = c("TotalCases", "TotalDeaths", "TotalTests", "Population"))
     )
   ),
   dashboardBody(
     tabItems(
-      tabItem(
-        tabName = "dashboard",
-        h2("COVID-19 Dashboard"),
-        selectInput("value", "Werte anzeigen:", choices = c("TotalCases", "TotalDeaths")),
-        leafletOutput("map")
+      # First tab content
+      tabItem(tabName = "Dashboard",
+              fluidRow(
+                valueBoxOutput("box_1")
+              ),
+              fluidRow(
+                leafletOutput("map")
+              )
+      ),
+      # Second tab content
+      tabItem(tabName = "Graphs",
+              fluidRow(
+                div(style = "overflow-x: auto", DT::DTOutput("graph"))
+              )
       )
     )
-  )
+  ),
+  tags$head(
+    tags$script(HTML(js_code)),
+    tags$style(HTML(css))
+  ),
+  skin = "yellow"
 )
 
 # Server
-server <- function(input, output) {
+server <- function(input, output, session) {
   # Reaktive Funktion zum Scrapen der Daten
   data <- reactive({
     table <- scrape_covid_data()
@@ -92,40 +129,45 @@ server <- function(input, output) {
     merged_data
   })
   
+  # Load and filter data
+  data_filtered <- reactive({
+    merged_data <- data()
+    if (!is.null(input$value)) {
+      merged_data <- merged_data %>% filter(country %in% input$countryInput)
+    }
+    merged_data
+  })
+  
+  # Render Box 1
+  output$box_1 <- renderValueBox({
+    valueBox(nrow(data_filtered()), subtitle = "Ausgewählte Länder", icon = icon(name = "table-list"), color = "purple")
+  })
+  
+  
   # Leaflet-Karte mit COVID-19-Daten
   output$map <- renderLeaflet({
-    leaflet() %>%
+    leaflet(data_filtered()) %>%
       addProviderTiles("CartoDB.Positron") %>%
       setView(lng = 0, lat = 20, zoom = 2) %>%
       addCircleMarkers(
-        data = data(),
-        lng = ~longitude,  # Verwende Längengrad aus kombinierten Daten
-        lat = ~latitude,  # Verwende Breitengrad aus kombinierten Daten
+        data = data_filtered(),
+        lng = ~longitude,
+        lat = ~latitude,
         radius = 10,
         color = "#FF0000",
-        fillOpacity = 0.7,
-        label = NULL,  # Setze das Label anfangs auf NULL
-        labelOptions = labelOptions(noHide = TRUE, riseOnHover = TRUE, riseOffset = 300)
+        fillOpacity = 0.7
       )
   })
   
-  # Anpassung des Popups
-  observeEvent(input$map_marker_click, {
-    event <- input$map_marker_click
-    if (!is.null(event)) {
-      popup_content <- paste0("<strong>", event$popup$country, "</strong><br>",
-                              "Total ", input$value, ": ", event$popup[[input$value]], sep = " ")
-      leafletProxy("map") %>%
-        clearPopups() %>%
-        addPopups(
-          lng = event$lng,
-          lat = event$lat,
-          options = popupOptions(closeButton = FALSE),
-          popup = HTML(popup_content)
-        )
-    }
+  # PickerInput for country selection
+  observe({
+    updatePickerInput(
+      session = session,
+      inputId = "countryInput",
+      choices = unique(data()$country),
+      selected = unique(data()$country)
+    )
   })
-  
 }
 
 # App starten
