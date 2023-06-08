@@ -1,11 +1,8 @@
 library(shiny)
-library(shinydashboard)
 library(leaflet)
-library(rvest)
-library(readr)
-library(tidyverse)
-library(htmlwidgets)
-library(leaflet.extras)
+library(shinydashboard)
+library(shinyWidgets)
+
 
 # Funktion zum Scrapen der Daten von der Website
 scrape_covid_data <- function() {
@@ -50,6 +47,7 @@ scrape_covid_data <- function() {
   table
 }
 
+# Funktion für Geodaten
 getgeodata <- function() {
   # Quelle: https://www.kaggle.com/datasets/paultimothymooney/latitude-and-longitude-for-every-country-and-state
   # Geo Daten Importieren
@@ -59,55 +57,56 @@ getgeodata <- function() {
   geodata
 }
 
-js_code <- '
-function copyToClipboard(text) {
-    var textarea = document.createElement("textarea");
-    textarea.value = text;
-    document.body.appendChild(textarea);
-    textarea.select();
-    document.execCommand("copy");
-    document.body.removeChild(textarea);
-    alert("Text copied to clipboard: " + text);
-}'
-
-css <- "
-custom-cursor:hover {
-    cursor: pointer;
-}
-"
-
 # UI
 ui <- dashboardPage(
   dashboardHeader(title = "COVID-19 Dashboard"),
   dashboardSidebar(
     sidebarMenu(
-      menuItem("Dashboard", tabName = "Dashboard", icon = icon("dashboard")),
-      menuItem("Graphs", tabName = "Graphs"),
-      selectInput("value", "Werte anzeigen:", choices = c("TotalCases", "TotalDeaths", "TotalTests", "Population"))
+      menuItem("Karte", tabName = "map_tab")
     )
   ),
   dashboardBody(
     tabItems(
-      # First tab content
-      tabItem(tabName = "Dashboard",
-              fluidRow(
-                valueBoxOutput("box_1")
-              ),
-              fluidRow(
-                leafletOutput("map")
-              )
-      ),
-      # Second tab content
-      tabItem(tabName = "Graphs",
-              fluidRow(
-                div(style = "overflow-x: auto", DT::DTOutput("graph"))
-              )
+      # Karte Tab
+      tabItem(
+        tabName = "map_tab",
+        fluidRow(
+          box(
+            title = "Ausgewählte Länder",
+            width = 6,
+            pickerInput(
+              inputId = "selected_countries",
+              choices = NULL,
+              options = list(`actions-box` = TRUE),
+              multiple = TRUE
+            )
+          ),
+          box(
+            title = "Ausgewählter Wert",
+            width = 6,
+            selectInput(
+              inputId = "selected_column",
+              label = "Spalte auswählen",
+              choices = c("TotalCases", "TotalDeaths", "TotalTests", "Population")
+            )
+          )
+        ),
+        fluidRow(
+          box(
+            title = "Karte",
+            width = 12,
+            leafletOutput("map")
+          )
+        ),
+        fluidRow(
+          box(
+            title = "Statistik",
+            width = 12,
+            valueBoxOutput("selected_countries_count")
+          )
+        )
       )
     )
-  ),
-  tags$head(
-    tags$script(HTML(js_code)),
-    tags$style(HTML(css))
   ),
   skin = "yellow"
 )
@@ -129,46 +128,55 @@ server <- function(input, output, session) {
     merged_data
   })
   
-  # Load and filter data
-  data_filtered <- reactive({
+  # Update der Dropdown-Menüs basierend auf den Daten
+  observe({
     merged_data <- data()
-    if (!is.null(input$value)) {
-      merged_data <- merged_data %>% filter(country %in% input$countryInput)
-    }
-    merged_data
+    
+    # Dropdown-Menü für ausgewählte Länder (Karte Tab)
+    updatePickerInput(
+      session = session,
+      inputId = "selected_countries",
+      choices = unique(merged_data$country),
+      selected = unique(merged_data$country)
+    )
   })
   
-  # Render Box 1
-  output$box_1 <- renderValueBox({
-    valueBox(nrow(data_filtered()), subtitle = "Ausgewählte Länder", icon = icon(name = "table-list"), color = "purple")
-  })
-  
-  
-  # Leaflet-Karte mit COVID-19-Daten
+  # Leaflet-Karte (Karte Tab)
   output$map <- renderLeaflet({
-    leaflet(data_filtered()) %>%
-      addProviderTiles("CartoDB.Positron") %>%
-      setView(lng = 0, lat = 20, zoom = 2) %>%
+    merged_data <- data()
+    
+    # Filtern der Daten basierend auf den ausgewählten Ländern
+    selected_data <- merged_data[merged_data$country %in% input$selected_countries, ]
+    
+    # Leaflet-Karte erstellen
+    leaflet() %>%
+      addTiles() %>%
       addCircleMarkers(
-        data = data_filtered(),
-        lng = ~longitude,
+        data = selected_data,
         lat = ~latitude,
-        radius = 10,
-        color = "#FF0000",
+        lng = ~longitude,
+        label = ~paste0(input$selected_column, ": ", get(input$selected_column)),
+        popup = ~paste0("<b>Land:</b> ", country, "<br>",
+                        "<b>", input$selected_column, ":</b> ", get(input$selected_column)),
+        color = "red",
         fillOpacity = 0.7
       )
   })
   
-  # PickerInput for country selection
-  observe({
-    updatePickerInput(
-      session = session,
-      inputId = "countryInput",
-      choices = unique(data()$country),
-      selected = unique(data()$country)
+  # Anzahl der ausgewählten Länder anzeigen (Statistik Tab)
+  output$selected_countries_count <- renderValueBox({
+    merged_data <- data()
+    selected_data <- merged_data[merged_data$country %in% input$selected_countries, ]
+    
+    valueBox(
+      value = length(input$selected_countries),
+      subtitle = "Ausgewählte Länder",
+      icon = icon("globe"),
+      color = "yellow"
     )
   })
 }
 
 # App starten
 shinyApp(ui, server)
+
