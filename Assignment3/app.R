@@ -7,7 +7,7 @@ library(readr)
 library(leaflet.extras)
 library(DT)
 
-# Funktion zum Scrapen der Daten von der Website
+# Function for scraping data from the website
 scrape_covid_data <- function() {
   url <- "https://www.worldometers.info/coronavirus/#main_table"
   page <- read_html(url)
@@ -15,26 +15,26 @@ scrape_covid_data <- function() {
   # Scrape the table containing coronavirus data
   table <- html_table(html_nodes(page, "table#main_table_countries_today"), header = TRUE)[[1]]
   
-  # Die ersten 8 und die letzten 8 Zeilen beinhalten Angaben zu den Kontinenten,
-  # die für die Kartenvisualisierung nicht benötigt werden.
-  # Lösche die ersten 8 Zeilen
+  # The first 8 and the last 8 rows contain information about continents,
+  # which is not needed for the map visualization.
+  # Remove the first 8 rows
   table <- table[-c(1:8), ]
   
-  # Lösche die letzten 8 Zeilen
+  # Remove the last 8 rows
   table <- table[-c((nrow(table) - 7):nrow(table)), ]
   
-  # Speichere nur die benötigten Spalten
+  # Keep only the necessary columns
   table <- table[, c(2, 3, 5, 13, 15)]
   
-  # Funktion zum Entfernen von Tausendertrennzeichen aus Zeichenketten
+  # Function to remove thousands separators from character strings
   removeCommas <- function(x) {
     gsub(",", "", x)
   }
   
-  # Spaltenindizes für die Umwandlung in numerische Werte
+  # Column indices for conversion to numeric values
   colIndices <- c(2, 3, 4, 5)
   
-  # Entferne Kommas und wandele in numerische Werte um
+  # Remove commas and convert to numeric values
   for (colIndex in colIndices) {
     table[[colIndex]] <- as.numeric(removeCommas(table[[colIndex]]))
   }
@@ -46,17 +46,17 @@ scrape_covid_data <- function() {
   colnames(table)[4] <- "TotalTests"
   colnames(table)[5] <- "Population"
   
-  # Rückgabe der Daten
+  # Return the data
   table
 }
 
-# Funktion für Geodaten
+# Function for geodata
 getgeodata <- function() {
-  # Quelle: https://www.kaggle.com/datasets/paultimothymooney/latitude-and-longitude-for-every-country-and-state
-  # Geo Daten Importieren
+  # Source: https://www.kaggle.com/datasets/paultimothymooney/latitude-and-longitude-for-every-country-and-state
+  # Import Geo data
   geodata <- read_csv("world_country_and_usa_states_latitude_and_longitude_values.csv")
   geodata <- geodata[, c("country", "latitude", "longitude")]
-  # Rückgabe der Daten
+  # Return the data
   geodata
 }
 
@@ -71,12 +71,12 @@ ui <- dashboardPage(
   ),
   dashboardBody(
     tabItems(
-      # Karte Tab
+      # Map Tab
       tabItem(
         tabName = "map_tab",
         fluidRow(
           box(
-            title = "Ausgewählte Länder",
+            title = "Selected countries",
             width = 6,
             pickerInput(
               inputId = "selected_countries",
@@ -86,11 +86,11 @@ ui <- dashboardPage(
             )
           ),
           box(
-            title = "Ausgewählter Wert",
+            title = "Selected value",
             width = 6,
             selectInput(
               inputId = "selected_column",
-              label = "Spalte auswählen",
+              label = "Select column",
               choices = c("TotalCases", "TotalDeaths", "TotalTests", "Population")
             )
           )
@@ -104,24 +104,24 @@ ui <- dashboardPage(
         ),
         fluidRow(
           box(
-            title = "Statistik",
+            title = "Number of countries",
             width = 6,
-            valueBoxOutput("selected_countries_count")
+            valueBoxOutput("selected_countries_count", width = 12)
           ),
           box(
-            title = "Mittelwert",
+            title = "Mean value",
             width = 6,
-            valueBoxOutput("average_value")
+            valueBoxOutput("average_value", width = 12)
           ),
           box(
-            title = "Maximaler Wert",
+            title = "Maximum value",
             width = 6,
-            valueBoxOutput("max_value")
+            valueBoxOutput("max_value", width = 12)
           ),
           box(
-            title = "Minimaler Wert",
+            title = "Minimum value",
             width = 6,
-            valueBoxOutput("min_value")
+            valueBoxOutput("min_value", width = 12)
           )
         )
       ),
@@ -130,11 +130,11 @@ ui <- dashboardPage(
         tabName = "heatmap_tab",
         fluidRow(
           box(
-            title = "Ausgewählter Wert",
+            title = "Selected value",
             width = 6,
             selectInput(
               inputId = "selected_column_heatmap",
-              label = "Spalte auswählen",
+              label = "Select column",
               choices = c("TotalCases", "TotalDeaths", "TotalTests", "Population")
             )
           )
@@ -161,26 +161,26 @@ ui <- dashboardPage(
 
 # Server
 server <- function(input, output, session) {
-  # Reaktive Funktion zum Scrapen der Daten
+  # Reactive function for scraping data
   data <- reactive({
     table <- scrape_covid_data()
     geodata <- getgeodata()
     
-    # Verbinde die Tabellen basierend auf der "country"-Spalte
+    # Merge the tables based on the "country" column
     merged_data <- merge(table, geodata, by = "country", all.x = TRUE)
     
-    # Entferne Zeilen mit NA-Werten
+    # Remove rows with NA values
     merged_data <- na.omit(merged_data)
     
-    # Rückgabe der kombinierten Daten
+    # Return the merged data
     merged_data
   })
   
-  # Update der Dropdown-Menüs basierend auf den Daten
+  # Update dropdown menus based on the data
   observe({
     merged_data <- data()
     
-    # Dropdown-Menü für ausgewählte Länder (Karte Tab)
+    # Dropdown menu for selected countries (Map Tab)
     updatePickerInput(
       session = session,
       inputId = "selected_countries",
@@ -189,14 +189,14 @@ server <- function(input, output, session) {
     )
   })
   
-  # Leaflet-Karte (Karte Tab)
+  # Leaflet map (Map Tab)
   output$map <- renderLeaflet({
     merged_data <- data()
     
-    # Filtern der Daten basierend auf den ausgewählten Ländern
+    # Filter the data based on the selected countries
     selected_data <- merged_data[merged_data$country %in% input$selected_countries, ]
     
-    # Leaflet-Karte erstellen
+    # Create Leaflet map
     leaflet() %>%
       addTiles() %>%
       addCircleMarkers(
@@ -204,40 +204,40 @@ server <- function(input, output, session) {
         lat = ~latitude,
         lng = ~longitude,
         label = ~paste0(input$selected_column, ": ", get(input$selected_column)),
-        popup = ~paste0("<b>Land:</b> ", country, "<br>",
+        popup = ~paste0("<b>Country:</b> ", country, "<br>",
                         "<b>", input$selected_column, ":</b> ", get(input$selected_column)),
         color = "red",
         fillOpacity = 0.7
       )
   })
   
-  # Anzahl der ausgewählten Länder anzeigen (Statistik Tab)
+  # Show the number of selected countries (Statistics Tab)
   output$selected_countries_count <- renderValueBox({
     merged_data <- data()
     selected_data <- merged_data[merged_data$country %in% input$selected_countries, ]
     
     valueBox(
       value = length(input$selected_countries),
-      subtitle = "Ausgewählte Länder",
+      subtitle = "Selected countries",
       icon = icon("globe"),
       color = "yellow"
     )
   })
   
-  # Mittelwert der Werte der ausgewählten Länder anzeigen (Statistik Tab)
+  # Show the average value of the selected countries (Statistics Tab)
   output$average_value <- renderValueBox({
     merged_data <- data()
     selected_data <- merged_data[merged_data$country %in% input$selected_countries, ]
     
     valueBox(
       value = round(mean(selected_data[[input$selected_column]], na.rm = TRUE), 2),
-      subtitle = "Mittelwert",
+      subtitle = "Mean value",
       icon = icon("calculator"),
       color = "green"
     )
   })
   
-  # Maximaler Wert und Name des Landes anzeigen (Statistik Tab)
+  # Show the maximum value and the country name (Statistics Tab)
   output$max_value <- renderValueBox({
     merged_data <- data()
     selected_data <- merged_data[merged_data$country %in% input$selected_countries, ]
@@ -247,13 +247,13 @@ server <- function(input, output, session) {
     
     valueBox(
       value = max_value,
-      subtitle = paste("Maximaler Wert (", country_with_max_value, ")"),
+      subtitle = paste("Maximum value (", country_with_max_value, ")"),
       icon = icon("arrow-up"),
       color = "red"
     )
   })
   
-  # Minimaler Wert und Name des Landes anzeigen (Statistik Tab)
+  # Show the minimum value and the country name (Statistics Tab)
   output$min_value <- renderValueBox({
     merged_data <- data()
     selected_data <- merged_data[merged_data$country %in% input$selected_countries, ]
@@ -265,35 +265,35 @@ server <- function(input, output, session) {
     
     valueBox(
       value = min_value,
-      subtitle = paste("Minimaler Wert (", country_with_min_value, ")"),
+      subtitle = paste("Minimum value (", country_with_min_value, ")"),
       icon = icon("arrow-down"),
       color = "blue"
     )
   })
   
-  # Kreise mit variabler Farbe und Größe erstellen (Heatmap Tab)
+  # Create circles with variable color and size (Heatmap Tab)
   output$heatmap <- renderLeaflet({
     merged_data <- data()
     
-    # Filtern der Daten basierend auf der ausgewählten Spalte
+    # Filter the data based on the selected column
     selected_data <- merged_data[merged_data$country %in% input$selected_countries, ]
     
-    # Normalisieren der Werte für Farbe und Größe
-    values <- selected_data[[input$selected_column]]
+    # Normalize the values for color and size
+    values <- selected_data[[input$selected_column_heatmap]]
     values <- na.omit(values)  # Entfernen der fehlenden Werte
     normalized_values <- scales::rescale(values, to = c(0, 1))
     
-    # Manuelle Festlegung des Wertebereichs für die Farbpalette
+    # Manually define the value range for the color palette
     min_value <- min(values, na.rm = TRUE)
     max_value <- max(values, na.rm = TRUE)
     
-    # Farbpalette definieren
+    # Define the color palette
     color_palette <- colorNumeric(
       palette = c("orange", "red"),  # Farbpalette anpassen
       domain = c(min_value, max_value)
     )
     
-    # Leaflet-Karte erstellen
+    # Create Leaflet map
     leaflet(data = selected_data) %>%
       addTiles() %>%
       addCircleMarkers(
@@ -304,25 +304,24 @@ server <- function(input, output, session) {
         color = "red",
         fillOpacity = 0.8,
         stroke = FALSE,
-        label = ~paste0(input$selected_column, ": ", get(input$selected_column))
+        label = ~paste0(input$selected_column_heatmap, ": ", get(input$selected_column_heatmap))
       )
   })
 
-  
-  # Tabelle mit den Top 10 Werten erstellen (Heatmap Tab)
+  # Create a table with the top 10 values (Heatmap Tab)
   output$top_values_table <- DT::renderDataTable({
     merged_data <- data()
     
-    # Sortieren der Daten nach der ausgewählten Spalte in absteigender Reihenfolge
+    # Sort the data based on the selected column in descending order
     sorted_data <- merged_data[order(merged_data[[input$selected_column_heatmap]], decreasing = TRUE), ]
     
-    # Begrenzen auf die Top 10 Werte
+    # Limit to the top 10 values
     top_values <- head(sorted_data, 10)
     
-    # DataTable-Objekt erstellen
+    # Create DataTable object
     datatable(top_values, options = list(pageLength = 10))
   })
 }
 
-# App starten
+# Start the app
 shinyApp(ui, server)
